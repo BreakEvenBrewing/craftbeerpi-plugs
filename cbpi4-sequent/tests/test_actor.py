@@ -47,21 +47,25 @@ class TestSequentRelay:
         assert calls == [(3, False)]
         assert actor.state is False
 
-    def test_on_start_reads_current_relay_state(self, monkeypatch):
-        actor = make_actor()
-        monkeypatch.setattr(actor.board, "get", lambda relay: True)
+    def test_on_start_forces_relay_off(self, monkeypatch):
+        actor = make_actor(board_id=1, relay=3)
+        actor.state = True
+        calls = []
+        monkeypatch.setattr(actor.board, "set", lambda relay, state: calls.append((relay, state)))
 
         asyncio.run(actor.on_start())
 
-        assert actor.state is True
+        assert calls == [(3, False)]
+        assert actor.state is False
 
-    def test_on_start_defaults_to_off_on_hardware_error(self, monkeypatch):
+    def test_on_start_reports_off_on_hardware_error(self, monkeypatch):
         actor = make_actor()
+        actor.state = True
 
-        def raise_error(relay):
+        def raise_error(relay, state):
             raise HardwareError("relay board not detected")
 
-        monkeypatch.setattr(actor.board, "get", raise_error)
+        monkeypatch.setattr(actor.board, "set", raise_error)
 
         asyncio.run(actor.on_start())
 
@@ -80,7 +84,27 @@ class TestSequentRelay:
 
         assert actor.state is False
 
-    def test_get_state_reports_current_state(self):
+    def test_on_accepts_power_and_output(self, monkeypatch):
+        # cbpi 4.7.4's ActorController calls instance.on(power, output).
         actor = make_actor()
+        monkeypatch.setattr(actor.board, "set", lambda relay, state: None)
+
+        asyncio.run(actor.on(100, 100))
+
+        assert actor.state is True
+
+    def test_get_state_returns_plain_bool(self):
+        actor = make_actor()
+        assert actor.get_state() is False
         actor.state = True
-        assert actor.get_state() == {"state": True}
+        assert actor.get_state() is True
+
+    def test_instances_do_not_share_state(self, monkeypatch):
+        a = make_actor(relay=1)
+        b = make_actor(relay=2)
+        monkeypatch.setattr(a.board, "set", lambda relay, state: None)
+
+        asyncio.run(a.on())
+
+        assert a.get_state() is True
+        assert b.get_state() is False

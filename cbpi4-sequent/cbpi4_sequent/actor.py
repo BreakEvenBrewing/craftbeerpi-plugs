@@ -40,16 +40,18 @@ class SequentRelay(CBPiActor):
         self.board = RelayBoard(self.board_id)
 
     async def on_start(self):
+        # Always start de-energized, like the built-in GPIOActor, rather than
+        # adopting whatever the relay happened to be left at.
+        self.state = False
         try:
-            self.state = self.board.get(self.relay)
+            self.board.set(self.relay, False)
         except HardwareError as exc:
             logger.error(
-                "SequentRelay %s (board %s, relay %s): %s",
+                "SequentRelay %s (board %s, relay %s) failed to turn off at startup: %s",
                 self.id, self.board_id, self.relay, exc,
             )
-            self.state = False
 
-    async def on(self, power=None):
+    async def on(self, power=None, output=None):
         try:
             self.board.set(self.relay, True)
             self.state = True
@@ -78,4 +80,7 @@ class SequentRelay(CBPiActor):
             )
 
     def get_state(self):
-        return dict(state=self.state)
+        # Actor.to_dict() sends this value as the UI's "state" field, which the
+        # UI tests for truthiness, so it must be a plain bool. A dict like
+        # {"state": False} is truthy in JS and renders as ON.
+        return self.state
