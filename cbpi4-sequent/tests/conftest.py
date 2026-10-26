@@ -86,7 +86,7 @@ def _install_cbpi_stub():
         async def on_start(self):
             pass
 
-        async def on(self, power=None):
+        async def on(self, power, output=None):
             pass
 
         async def off(self):
