@@ -7,9 +7,11 @@ from cbpi4_sequent.hardware import HardwareError
 from cbpi4_sequent.actor import SequentRelay
 
 
-def make_actor(board_id=0, relay=1):
+def make_actor(board_id=0, relay=1, startup_state=None):
     cbpi = MagicMock()
     props = {"BoardID": board_id, "Relay": relay}
+    if startup_state is not None:
+        props["StartupState"] = startup_state
     return SequentRelay(cbpi, "actor-1", props)
 
 
@@ -57,6 +59,48 @@ class TestSequentRelay:
 
         assert calls == [(3, False)]
         assert actor.state is False
+
+    def test_on_start_startup_state_off_forces_relay_off(self, monkeypatch):
+        actor = make_actor(relay=3, startup_state="Off")
+        actor.state = True
+        calls = []
+        monkeypatch.setattr(actor.board, "set", lambda relay, state: calls.append((relay, state)))
+
+        asyncio.run(actor.on_start())
+
+        assert calls == [(3, False)]
+        assert actor.state is False
+
+    def test_on_start_startup_state_on_energizes_relay(self, monkeypatch):
+        actor = make_actor(relay=8, startup_state="On")
+        calls = []
+        monkeypatch.setattr(actor.board, "set", lambda relay, state: calls.append((relay, state)))
+
+        asyncio.run(actor.on_start())
+
+        assert calls == [(8, True)]
+        assert actor.state is True
+
+    def test_on_start_startup_state_on_reports_off_on_hardware_error(self, monkeypatch):
+        actor = make_actor(startup_state="On")
+
+        def raise_error(relay, state):
+            raise HardwareError("relay board not detected")
+
+        monkeypatch.setattr(actor.board, "set", raise_error)
+
+        asyncio.run(actor.on_start())
+
+        assert actor.state is False
+
+    def test_empty_startup_state_defaults_to_off(self):
+        assert make_actor(startup_state="").startup_state == "Off"
+
+    def test_invalid_startup_state_raises(self):
+        from cbpi.api import ActorException
+
+        with pytest.raises(ActorException):
+            make_actor(startup_state="Maybe")
 
     def test_on_start_reports_off_on_hardware_error(self, monkeypatch):
         actor = make_actor()

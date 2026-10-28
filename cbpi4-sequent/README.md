@@ -76,11 +76,18 @@ Both components take a **Board ID** (the stack address, selectable via the
 board's address jumpers, 0-7) and a **channel**:
 
 - `SequentRTD`: Board ID + RTD Channel (1-8) + read Interval (seconds)
-- `SequentRelay`: Board ID + Relay (1-8)
+- `SequentRelay`: Board ID + Relay (1-8) + Startup State (Off/On)
 
 Add a sensor or actor from the CBPi UI, pick `SequentRTD` / `SequentRelay`
 as the type, and fill in Board ID and channel to match your wiring — e.g.
 Board ID 0, Relay 1 for the first relay on your only relay HAT.
+
+**Startup State** is what the relay is driven to when CBPi starts. It
+defaults to Off (also for actors created before the option existed). Set
+it to On for e.g. an error lamp wired through the relay's NC contact: the
+lamp is lit whenever the relay is de-energized, and goes out once CBPi has
+started and energized the relay. If the board can't be reached at
+startup, the actor reports OFF and the lamp stays lit.
 
 ## Error handling
 
