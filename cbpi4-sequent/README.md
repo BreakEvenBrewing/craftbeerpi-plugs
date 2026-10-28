@@ -75,12 +75,45 @@ actor types in the CBPi UI.
 Both components take a **Board ID** (the stack address, selectable via the
 board's address jumpers, 0-7) and a **channel**:
 
-- `SequentRTD`: Board ID + RTD Channel (1-8) + read Interval (seconds)
+- `SequentRTD`: Board ID + RTD Channel (1-8) + read Interval (seconds),
+  plus optional Calibration Offset / Calibration Unit (see below)
 - `SequentRelay`: Board ID + Relay (1-8)
 
 Add a sensor or actor from the CBPi UI, pick `SequentRTD` / `SequentRelay`
 as the type, and fill in Board ID and channel to match your wiring — e.g.
 Board ID 0, Relay 1 for the first relay on your only relay HAT.
+
+### RTD calibration
+
+Each `SequentRTD` can correct a probe's systematic error with two
+properties:
+
+- **CalibrationOffset** — degrees added to every successful reading.
+  Positive, negative and fractional values are allowed. Default `0`
+  (no correction); sensors configured before this option existed behave
+  exactly as before.
+- **CalibrationUnit** — `C` or `F`, the unit the offset is written in.
+  Required whenever the offset is not 0; the sensor refuses to start
+  (with an error in the CBPi UI/log) rather than guess.
+
+The HAT always measures in °C. The plugin converts that to CBPi's
+`TEMP_UNIT`, then adds the offset — converted to `TEMP_UNIT` as a
+temperature *difference* (×9/5 or ×5/9, no ±32) if the units differ — and
+rounds to 0.01°. That single corrected value is what the dashboard,
+controllers/PID, recipes and CSV logs all receive. Switching `TEMP_UNIT`
+later therefore keeps the correction physically the same size.
+
+To calibrate, put the probes in the same well-stirred water bath (ideally
+next to a trusted reference thermometer) and set
+`offset = reference − reading`. For example, if the reference reads
+92.7 °F and the probe reads 91.5 °F, set CalibrationOffset `1.2`,
+CalibrationUnit `F`.
+
+The offset is purely a software correction: it never touches the HAT's
+own calibration or its raw measurements, and it is applied only after a
+reading has succeeded. Failed reads and open/disconnected channels are
+still detected on the raw value and logged, and no corrected value is
+published for them.
 
 ## Error handling
 
