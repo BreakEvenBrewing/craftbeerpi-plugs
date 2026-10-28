@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 
 from cbpi.api import CBPiSensor, Property, SensorException, parameters
 
@@ -9,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 BOARD_IDS = [0, 1, 2, 3, 4, 5, 6, 7]
 CHANNELS = [1, 2, 3, 4, 5, 6, 7, 8]
+CALIBRATION_UNITS = ["C", "F"]
 
 
 @parameters(
@@ -29,6 +31,20 @@ CHANNELS = [1, 2, 3, 4, 5, 6, 7, 8]
             default_value=5,
             description="Read interval in seconds",
         ),
+        Property.Number(
+            label="CalibrationOffset",
+            configurable=True,
+            default_value=0,
+            unit="degree",
+            description="Temperature correction added to the measured value. Positive or "
+            "negative decimal degrees; specify °C or °F using CalibrationUnit.",
+        ),
+        Property.Select(
+            label="CalibrationUnit",
+            options=CALIBRATION_UNITS,
+            description="Unit of CalibrationOffset (C or F). Required when the offset "
+            "is not 0; converted automatically if the display unit differs.",
+        ),
     ]
 )
 class SequentRTD(CBPiSensor):
@@ -46,7 +62,39 @@ class SequentRTD(CBPiSensor):
         if self.channel not in CHANNELS:
             raise SensorException(f"Invalid Sequent RTD channel: {self.channel}")
 
+        self.offset, self.offset_unit = self._parse_calibration()
+
         self.board = RtdBoard(self.board_id)
+
+    def _parse_calibration(self):
+        # Sensors configured before calibration existed have neither property;
+        # the UI may also send an empty string for a cleared number field.
+        raw = self.props.get("CalibrationOffset")
+        if raw is None or raw == "":
+            raw = 0
+        try:
+            offset = float(raw)
+        except (TypeError, ValueError):
+            raise SensorException(f"Invalid Sequent RTD calibration offset: {raw!r}")
+        if not math.isfinite(offset):
+            raise SensorException(f"Invalid Sequent RTD calibration offset: {raw!r}")
+
+        unit = self.props.get("CalibrationUnit") or None
+        if unit is not None and unit not in CALIBRATION_UNITS:
+            raise SensorException(f"Invalid Sequent RTD calibration unit: {unit!r}")
+        if offset != 0 and unit is None:
+            # Guessing would silently apply e.g. a Fahrenheit offset to Celsius.
+            raise SensorException(
+                "Sequent RTD calibration offset is set but CalibrationUnit is not (choose C or F)"
+            )
+        return offset, unit
+
+    def offset_in(self, unit):
+        """Return the calibration offset expressed as a difference in ``unit``."""
+        if self.offset == 0 or self.offset_unit == unit:
+            return self.offset
+        # Temperature differences scale by 9/5 with no +32 shift.
+        return self.offset * 9.0 / 5.0 if unit == "F" else self.offset * 5.0 / 9.0
 
     def get_state(self):
         return dict(value=self.value)
@@ -64,7 +112,8 @@ class SequentRTD(CBPiSensor):
                 continue
 
             unit = self.get_config_value("TEMP_UNIT", "C")
-            self.value = round(temp_c if unit == "C" else (temp_c * 9.0 / 5.0 + 32), 2)
+            temp = temp_c if unit == "C" else (temp_c * 9.0 / 5.0 + 32)
+            self.value = round(temp + self.offset_in(unit), 2)
 
             self.push_update(self.value)
             self.log_data(self.value)
